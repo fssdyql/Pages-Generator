@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>网页加密生成器 (AES)</title>
+    <!-- 引入加密库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 20px; line-height: 1.6; }
+        textarea { width: 100%; height: 200px; margin-bottom: 10px; font-family: monospace; border: 1px solid #ccc; padding: 10px; }
+        input { padding: 10px; width: 300px; border: 1px solid #ccc; }
+        button { padding: 10px 20px; background: #2563eb; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #1d4ed8; }
+        .step { margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 20px; }
+        h3 { margin-top: 0; }
+    </style>
+</head>
+<body>
+
+    <div class="step">
+        <h3>1. 粘贴原本的 HTML 代码</h3>
+        <p>把HTML代码粘贴到下面：</p>
+        <textarea id="originalHtml" placeholder="在此粘贴原来的代码..."></textarea>
+    </div>
+
+    <div class="step">
+        <h3>2. 设置访问密钥</h3>
+        <input type="text" id="password" placeholder="输入设定的密码">
+    </div>
+
+    <div class="step">
+        <h3>3. 生成加密网页</h3>
+        <button onclick="generate()">🔒 生成加密代码</button>
+        <p>复制下面的代码，保存为 <code>index.html</code> 并上传到 GitHub Pages：</p>
+        <textarea id="finalHtml" readonly placeholder="加密后的代码将出现在这里..."></textarea>
+    </div>
+
+    <script>
+        function generate() {
+            const content = document.getElementById('originalHtml').value;
+            const pass = document.getElementById('password').value;
+
+            if (!content || !pass) {
+                alert("请填写源代码和密码！");
+                return;
+            }
+
+            // 使用 AES 加密内容
+            const encrypted = CryptoJS.AES.encrypt(content, pass).toString();
+
+            // 生成最终的 HTML 模板
+            const template = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>受保护的页面</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8fafc;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;color:#334155}
+    .login-box{background:#fff;padding:40px;border-radius:16px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.1);text-align:center;width:90%;max-width:320px}
+    h2{margin-top:0;margin-bottom:20px;font-size:18px;color:#1e293b}
+    input{width:100%;padding:12px;margin-bottom:16px;border:1px solid #cbd5e1;border-radius:8px;box-sizing:border-box;outline:none;transition:0.2s}
+    input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,0.1)}
+    button{width:100%;padding:12px;background:#2563eb;color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;transition:0.2s}
+    button:hover{background:#1d4ed8}
+    .err{color:#ef4444;font-size:13px;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<div class="login-box" id="loginUI">
+    <h2>🔒 请输入访问密钥</h2>
+    <input type="password" id="key" placeholder="输入密钥..." onkeyup="if(event.key==='Enter')unlock()">
+    <button onclick="unlock()">查看内容</button>
+    <div class="err" id="errMsg">密钥错误，解密失败</div>
+</div>
+<script>
+    // 这是加密后的数据，没有密码绝对无法还原
+    const secretData = "${encrypted}";
+
+    function unlock() {
+        const key = document.getElementById('key').value;
+        try {
+            // 尝试解密
+            const bytes = CryptoJS.AES.decrypt(secretData, key);
+            const originalText = bytes.toString(CryptoJS.enc.Utf8);
+            
+            if (!originalText) throw new Error("解密结果为空"); // 密码错误通常会导致转换失败或乱码
+            
+            // 写入文档
+            document.open();
+            document.write(originalText);
+            document.close();
+        } catch (e) {
+            console.error(e);
+            const err = document.getElementById('errMsg');
+            err.style.display = 'block';
+            err.innerText = "密钥错误";
+            // 简单的抖动动画
+            const box = document.querySelector('.login-box');
+            box.style.transform = 'translateX(5px)';
+            setTimeout(()=>box.style.transform='translateX(0)', 100);
+            setTimeout(()=>box.style.transform='translateX(-5px)', 200);
+            setTimeout(()=>box.style.transform='translateX(0)', 300);
+        }
+    }
+<\/script>
+</body>
+</html>`;
+
+            document.getElementById('finalHtml').value = template;
+        }
+    </script>
+</body>
+</html>

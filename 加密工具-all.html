@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>页面加密生成器 (all)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+    body{font-family:"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#1e293b;max-width:900px;margin:20px auto;padding:20px}
+    .card{background:#fff;border-radius:12px;padding:24px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);margin-bottom:20px;border:1px solid #e2e8f0}
+    h2{margin-top:0;font-size:18px;border-bottom:1px solid #f1f5f9;padding-bottom:12px;color:#0f172a;display:flex;align-items:center;gap:10px}
+    .badge{background:#3b82f6;color:#fff;font-size:12px;padding:2px 8px;border-radius:10px;font-weight:normal}
+    textarea{width:100%;height:120px;font-family:monospace;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;display:block;box-sizing:border-box}
+    input[type="text"]{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box}
+    .row{display:flex;gap:10px;margin-bottom:10px;align-items:center}
+    button{padding:10px 18px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;transition:0.2s}
+    button:hover{filter:brightness(0.95)}
+    button.green{background:#10b981}
+    button.red{background:#ef4444}
+    button.gray{background:#64748b}
+    
+    .key-display{background:#ecfdf5;color:#047857;padding:15px;border-radius:8px;border:1px dashed #34d399;font-family:monospace;word-break:break-all;font-weight:bold;margin-bottom:15px}
+    .sub-section{background:#f8fafc;padding:15px;border-radius:8px;border:1px solid #e2e8f0;margin-top:10px}
+    .key-list{margin-top:10px}
+    .key-item{background:#fff;padding:8px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:5px;display:flex;justify-content:space-between;font-size:14px}
+</style>
+</head>
+<body>
+
+<!-- 1. 核心密钥 -->
+<div class="card">
+    <h2>1. 系统主密钥 <span class="badge">重要</span></h2>
+    <p style="font-size:14px;color:#64748b">这是解开网页的唯一核心钥匙。本地密码会加密它，<b>API 接口也必须返回这个值</b>。</p>
+    <div class="key-display" id="masterKeyDisplay">生成中...</div>
+    <div class="row">
+        <button class="green" onclick="genMasterKey()">🔄 重新生成</button>
+        <button class="gray" onclick="copyMasterKey()">📋 复制 (用于配置后端)</button>
+    </div>
+</div>
+
+<!-- 2. 源码 -->
+<div class="card">
+    <h2>2. 原始内容 (HTML)</h2>
+    <textarea id="srcHtml" placeholder="在此粘贴原来的 LX 插件 HTML 代码..."></textarea>
+</div>
+
+<!-- 3. 配置解锁方式 -->
+<div class="card">
+    <h2>3. 配置解锁方式</h2>
+    
+    <!-- 方式A: API -->
+    <div class="sub-section">
+        <div style="font-weight:bold;margin-bottom:10px;color:#3b82f6">方式 A: 远程 API 验证</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px">启用后，用户输入Token，网页请求API。若API返回主密钥，则解锁。</div>
+        <div class="row">
+            <input type="checkbox" id="useApi" onchange="toggleApi(this.checked)"> <label for="useApi">启用 API 验证</label>
+        </div>
+        <div id="apiConfig" style="display:none">
+            <label style="font-size:12px;display:block;margin-bottom:4px">API URL 模板 ({KEY} 会被替换为用户输入的口令):</label>
+            <input type="text" id="apiUrl" placeholder="https://api.example.com/check?token={KEY}" style="margin-bottom:10px">
+            
+            <label style="font-size:12px;display:block;margin-bottom:4px">返回格式:</label>
+            <select id="apiType" style="padding:8px;border-radius:6px;border:1px solid #cbd5e1;width:100%;margin-bottom:10px">
+                <option value="text">纯文本 (Body 就是主密钥)</option>
+                <option value="json">JSON (从字段读取)</option>
+            </select>
+            <input type="text" id="apiJsonPath" placeholder="JSON字段路径, 如: data.key" style="display:none">
+        </div>
+    </div>
+
+    <!-- 方式B: 本地密码 -->
+    <div class="sub-section">
+        <div style="font-weight:bold;margin-bottom:10px;color:#8b5cf6">方式 B: 本地密码/密钥</div>
+        <div class="row">
+            <input type="text" id="txtPass" placeholder="输入密码 (如 123456)">
+            <button onclick="addPass()">添加</button>
+        </div>
+    </div>
+
+    <!-- 方式C: 文件锁 -->
+    <div class="sub-section">
+        <div style="font-weight:bold;margin-bottom:10px;color:#ec4899">方式 C: 文件锁</div>
+        <div class="row">
+            <input type="file" id="filePass">
+            <button onclick="addFile()">添加文件</button>
+        </div>
+    </div>
+
+    <div class="key-list" id="vaultList"></div>
+</div>
+
+<!-- 4. 生成 -->
+<div class="card">
+    <h2>4. 生成离线页面</h2>
+    <button onclick="generate()" style="width:100%;height:45px;font-size:16px">🚀 生成 index.html 代码</button>
+    <textarea id="finalHtml" readonly placeholder="结果将在这里显示..." style="height:200px;margin-top:15px"></textarea>
+</div>
+
+<script>
+let masterKey = '';
+let vault = []; // 本地锁列表
+
+function genMasterKey() {
+    masterKey = CryptoJS.lib.WordArray.random(32).toString();
+    document.getElementById('masterKeyDisplay').innerText = masterKey;
+    // 重置本地锁，因为主密钥变了，旧锁失效
+    vault = [];
+    renderVault();
+}
+
+function copyMasterKey() {
+    navigator.clipboard.writeText(masterKey);
+    alert('主密钥已复制！请确保你的 API 接口会在验证成功后返回这个字符串。');
+}
+
+function toggleApi(show) {
+    document.getElementById('apiConfig').style.display = show ? 'block' : 'none';
+}
+
+document.getElementById('apiType').addEventListener('change', function() {
+    document.getElementById('apiJsonPath').style.display = this.value === 'json' ? 'block' : 'none';
+});
+
+// 添加本地密码
+function addPass() {
+    const p = document.getElementById('txtPass').value;
+    if(!p) return;
+    // 制作锁：用密码加密(VerifyToken + MasterKey)
+    const lock = CryptoJS.AES.encrypt("OK|" + masterKey, p).toString();
+    vault.push({type: 'PASS', desc: p, lock: lock});
+    document.getElementById('txtPass').value='';
+    renderVault();
+}
+
+// 添加本地文件
+function addFile() {
+    const f = document.getElementById('filePass').files[0];
+    if(!f) return;
+    const r = new FileReader();
+    r.onload = e => {
+        const hash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+        const lock = CryptoJS.AES.encrypt("OK|" + masterKey, hash).toString();
+        vault.push({type: 'FILE', desc: '文件: ' + f.name, lock: lock});
+        renderVault();
+    };
+    r.readAsArrayBuffer(f);
+}
+
+function renderVault() {
+    document.getElementById('vaultList').innerHTML = vault.map((k,i) => `
+        <div class="key-item">
+            <span>[${k.type}] ${k.desc}</span>
+            <button class="red" style="padding:2px 8px;font-size:12px" onclick="vault.splice(${i},1);renderVault()">删</button>
+        </div>
+    `).join('');
+}
+
+function generate() {
+    const src = document.getElementById('srcHtml').value;
+    if(!src) return alert('请粘贴源码');
+    
+    // 1. 加密原始内容
+    const encryptedContent = CryptoJS.AES.encrypt(src, masterKey).toString();
+    
+    // 2. 收集 API 配置
+    const useApi = document.getElementById('useApi').checked;
+    const apiConfig = {
+        enabled: useApi,
+        url: document.getElementById('apiUrl').value,
+        type: document.getElementById('apiType').value,
+        path: document.getElementById('apiJsonPath').value
+    };
+
+    if(useApi && !apiConfig.url) return alert('请填写 API URL');
+    if(!useApi && vault.length === 0) return alert('至少需要一种解锁方式（API 或 本地密码）');
+
+    // 3. 生成 HTML
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restricted Access</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+body{background:#111;color:#eee;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
+.box{width:90%;max-width:400px;background:#222;padding:25px;border-radius:10px;border:1px solid #333;box-shadow:0 10px 20px rgba(0,0,0,0.5)}
+.tabs{display:flex;border-bottom:1px solid #333;margin-bottom:20px}
+.tab{flex:1;text-align:center;padding:10px;cursor:pointer;color:#666;transition:0.3s}
+.tab.active{color:#3b82f6;border-bottom:2px solid #3b82f6}
+.panel{display:none}
+.panel.active{display:block}
+input{width:100%;padding:12px;background:#000;border:1px solid #333;color:#fff;border-radius:5px;box-sizing:border-box;margin-bottom:15px;text-align:center;outline:none}
+input:focus{border-color:#3b82f6}
+button{width:100%;padding:12px;background:#3b82f6;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:bold}
+button:hover{background:#2563eb}
+button:disabled{background:#444;cursor:wait}
+.file-area{border:2px dashed #333;padding:20px;text-align:center;border-radius:5px;cursor:pointer;margin-bottom:15px}
+.file-area:hover{border-color:#3b82f6;background:#111}
+#msg{color:#f43f5e;text-align:center;margin-top:15px;font-size:12px;min-height:1.2em}
+</style>
+</head>
+<body>
+<div class="box" id="ui">
+    <h3 style="text-align:center;margin-top:0;color:#fff">🔐 ACCESS CONTROL</h3>
+    <div class="tabs">
+        ${useApi ? '<div class="tab active" onclick="sw(0)">API 验证</div>' : ''}
+        ${vault.length > 0 ? `<div class="tab ${!useApi?'active':''}" onclick="sw(1)">本地密钥</div>` : ''}
+    </div>
+
+    <!-- API Panel -->
+    ${useApi ? `
+    <div class="panel active" id="p0">
+        <p style="font-size:12px;color:#888;text-align:center">输入授权码以连接服务器获取权限</p>
+        <input type="text" id="apiToken" placeholder="输入 Token / 授权码" onkeyup="if(event.key==='Enter')doApi()">
+        <button id="btnApi" onclick="doApi()">🔗 连接验证</button>
+    </div>` : ''}
+
+    <!-- Local Panel -->
+    ${vault.length > 0 ? `
+    <div class="panel ${!useApi?'active':''}" id="p1">
+        <p style="font-size:12px;color:#888;text-align:center">输入密码 或 上传密钥文件</p>
+        
+        <input type="password" id="locPass" placeholder="输入密码..." onkeyup="if(event.key==='Enter')doLocal()">
+        
+        <div style="text-align:center;color:#444;margin-bottom:10px;font-size:12px">- OR -</div>
+        
+        <div class="file-area" onclick="document.getElementById('fIn').click()">
+            <div id="fn">📁 点击上传密钥文件</div>
+        </div>
+        <input type="file" id="fIn" style="display:none" onchange="handleF(this)">
+        
+        <button onclick="doLocal()">🔓 解锁</button>
+    </div>` : ''}
+
+    <div id="msg"></div>
+</div>
+
+<script>
+const C = "${encryptedContent}";
+const V = ${JSON.stringify(vault.map(v=>v.lock))};
+const API = ${JSON.stringify(apiConfig)};
+let fHash = null;
+
+function sw(n){
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', ${useApi ? 'i===n' : 'true'}));
+    document.querySelectorAll('.panel').forEach((p,i)=>p.classList.toggle('active', ${useApi ? 'i===n' : 'true'}));
+    msg('');
+}
+
+function msg(t){ document.getElementById('msg').innerText=t; }
+
+function handleF(el){
+    if(el.files[0]){
+        document.getElementById('fn').innerText = "📄 " + el.files[0].name;
+        const r = new FileReader();
+        r.onload = e => fHash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+        r.readAsArrayBuffer(el.files[0]);
+    }
+}
+
+// 核心解密与重写
+function unlock(mk){
+    try{
+        const bytes = CryptoJS.AES.decrypt(C, mk);
+        const html = bytes.toString(CryptoJS.enc.Utf8);
+        if(!html) throw new Error();
+        document.open();
+        document.write(html);
+        document.close();
+    }catch(e){
+        msg("密钥校验失败 (数据损坏)");
+    }
+}
+
+// 本地解锁逻辑
+function doLocal(){
+    const p = document.getElementById('locPass') ? document.getElementById('locPass').value : '';
+    const keysToCheck = [];
+    if(p) keysToCheck.push(p);
+    if(fHash) keysToCheck.push(fHash);
+    
+    if(keysToCheck.length===0) return msg("请输入密码或选择文件");
+
+    let foundKey = null;
+    // 暴力尝试：拿用户输入的密码去试所有的锁
+    for(let k of keysToCheck){
+        for(let lock of V){
+            try{
+                const bytes = CryptoJS.AES.decrypt(lock, k);
+                const str = bytes.toString(CryptoJS.enc.Utf8);
+                if(str.startsWith("OK|")){
+                    foundKey = str.split('|')[1];
+                    break;
+                }
+            }catch(e){}
+        }
+        if(foundKey) break;
+    }
+
+    if(foundKey) unlock(foundKey);
+    else msg("密码或文件错误");
+}
+
+// API 解锁逻辑
+async function doApi(){
+    const token = document.getElementById('apiToken').value;
+    if(!token) return msg("请输入 Token");
+    
+    const btn = document.getElementById('btnApi');
+    btn.disabled = true;
+    btn.innerText = "⏳ 验证中...";
+    msg("");
+
+    try {
+        const url = API.url.replace('{KEY}', encodeURIComponent(token));
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("API status " + res.status);
+        
+        let mk = "";
+        if(API.type === 'json'){
+            const data = await res.json();
+            mk = API.path.split('.').reduce((o,i)=>o?o[i]:null, data);
+        } else {
+            mk = await res.text();
+        }
+        
+        if(!mk) throw new Error("API未返回密钥");
+        unlock(mk.trim());
+        
+    } catch(e) {
+        console.error(e);
+        msg("API 验证失败: " + e.message);
+        btn.disabled = false;
+        btn.innerText = "🔗 连接验证";
+    }
+}
+<\/script>
+</body>
+</html>`;
+
+    document.getElementById('finalHtml').value = html;
+}
+
+// 初始化
+genMasterKey();
+</script>
+</body>
+</html>

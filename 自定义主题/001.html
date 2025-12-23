@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>受保护的内容</title>
+<style>
+    body { font-family: -apple-system,"Segoe UI",Roboto,sans-serif; background: #f8fafc; color: #334155; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    
+    /* 卡片容器：复刻 .box 样式，但调整为适合登录的宽度 */
+    .box { width: 100%; max-width: 420px; background: #fff; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e2e8f0; }
+    
+    /* 头部：复刻 .h 样式 */
+    .h { padding: 20px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #fff; }
+    .h h1 { font-size: 18px; margin: 0; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+    
+    /* 标签页：复刻 .tabs 和 .tab 样式 */
+    .tabs { background: #f1f5f9; display: flex; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid #e2e8f0; }
+    .tab { padding: 10px 20px; cursor: pointer; font-weight: 600; color: #64748b; border-radius: 8px 8px 0 0; font-size: 14px; transition: 0.2s; user-select: none; }
+    .tab:hover { background: #e2e8f0; color: #334155; }
+    .tab.active { background: #fff; color: #2563eb; box-shadow: 0 -4px 6px -1px rgba(0,0,0,0.02); margin-bottom: -1px; border-bottom: 1px solid #fff; }
+    
+    /* 内容区域 */
+    .content-area { padding: 24px; background: #fff; min-height: 200px; display: flex; flex-direction: column; justify-content: center; }
+    
+    /* 输入框组：复刻 .key-in 风格 */
+    .form-group { margin-bottom: 16px; }
+    .label { font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 6px; display: block; }
+    .input-box { width: 100%; border: 1px solid #cbd5e1; padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none; box-sizing: border-box; transition: 0.2s; color: #334155; }
+    .input-box:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+    
+    /* 按钮：复刻 .btn 和 .btn-dl */
+    .btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 8px; border: none; font-size: 14px; cursor: pointer; font-weight: 600; transition: 0.2s; width: 100%; box-sizing: border-box; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { filter: brightness(0.95); }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    /* 次要按钮：复刻 .btn-lnk */
+    .btn-sec { background: #fff; border: 1px solid #cbd5e1; color: #475569; margin-top: 10px; }
+    .btn-sec:hover { border-color: #2563eb; color: #2563eb; }
+
+    /* 消息提示区 */
+    .msg-box { margin-top: 16px; padding: 10px; border-radius: 6px; font-size: 13px; text-align: center; display: none; }
+    .msg-error { background: #fef2f2; color: #ef4444; border: 1px solid #fee2e2; }
+    .msg-success { background: #f0fdf4; color: #16a34a; border: 1px solid #dcfce7; }
+    .msg-info { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
+
+    .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="box">
+    <!-- 头部 -->
+    <div class="h">
+        <h1>🔒 受限访问</h1>
+        <span style="font-size:12px;color:#94a3b8;font-family:monospace">ENCRYPTED</span>
+    </div>
+
+    <!-- 标签页切换 -->
+    <div class="tabs">
+        <div class="tab active" id="tab-api" onclick="switchMode('api')">API 验证</div>
+        <div class="tab" id="tab-local" onclick="switchMode('local')">本地解锁</div>
+    </div>
+
+    <!-- 面板容器 -->
+    <div class="content-area">
+        
+        <!-- 1. API 验证面板 -->
+        <div id="panel-api">
+            <div class="form-group">
+                <label class="label">访问令牌 (Access Token)</label>
+                <input type="text" class="input-box" id="inp-token" placeholder="请输入您的 Key 或 Token..." onkeyup="if(event.key==='Enter') doApi()">
+            </div>
+            <button class="btn btn-primary" id="btn-api" onclick="doApi()">🚀 验证身份</button>
+        </div>
+
+        <!-- 2. 本地解锁面板 -->
+        <div id="panel-local" class="hidden">
+            <div class="form-group">
+                <label class="label">访问密码 (Password)</label>
+                <input type="password" class="input-box" id="inp-pass" placeholder="输入密码..." onkeyup="if(event.key==='Enter') doLocal()">
+            </div>
+            <button class="btn btn-primary" onclick="doLocal()">🔓 立即解锁</button>
+            
+            <div style="height:1px;background:#f1f5f9;margin:16px 0;"></div>
+            
+            <label class="label" style="text-align:center;margin-bottom:8px">或使用密钥文件</label>
+            <input type="file" id="file-picker" style="display:none" onchange="doFile(this)">
+            <button class="btn btn-sec" onclick="document.getElementById('file-picker').click()">
+                📂 选择 Key 文件
+            </button>
+        </div>
+
+        <!-- 消息反馈区域 -->
+        <div id="msg" class="msg-box"></div>
+    </div>
+</div>
+
+<script>
+    // --- 逻辑对接部分 ---
+
+    // 1. 初始化：根据配置隐藏 API Tab
+    if (!window.LX.config.useApi) {
+        document.getElementById('tab-api').style.display = 'none';
+        switchMode('local');
+    }
+
+    // 2. 模式切换逻辑
+    function switchMode(mode) {
+        // 更新 Tab 样式
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('tab-' + mode).classList.add('active');
+        
+        // 切换面板显示
+        document.getElementById('panel-api').classList.toggle('hidden', mode !== 'api');
+        document.getElementById('panel-local').classList.toggle('hidden', mode !== 'local');
+        
+        // 清空消息
+        showMsg('');
+    }
+
+    // 3. 消息显示逻辑 (对接内核回调)
+    window.LX.onMessage = function(text, type) {
+        const btn = document.getElementById('btn-api');
+        
+        // 恢复按钮状态
+        if(btn) {
+            btn.disabled = false;
+            btn.innerHTML = '🚀 验证身份';
+        }
+
+        if (type === 'process') {
+            if(btn) {
+                btn.disabled = true;
+                btn.innerHTML = '🔄 处理中...';
+            }
+            showMsg(text, 'info');
+        } else if (type === 'error') {
+            showMsg(text, 'error');
+            shake(); // 错误时震动一下
+        } else {
+            showMsg(text, 'success');
+        }
+    };
+
+    function showMsg(text, type) {
+        const el = document.getElementById('msg');
+        if (!text) {
+            el.style.display = 'none';
+            return;
+        }
+        el.style.display = 'block';
+        el.className = 'msg-box msg-' + type;
+        el.innerText = text;
+    }
+
+    // 4. 触发动作
+    function doApi() {
+        const val = document.getElementById('inp-token').value.trim();
+        window.LX.unlockWithApi(val);
+    }
+
+    function doLocal() {
+        const val = document.getElementById('inp-pass').value;
+        window.LX.unlock(val);
+    }
+
+    function doFile(input) {
+        if(input.files && input.files[0]) {
+            showMsg('正在读取文件...', 'info');
+            window.LX.unlockWithFile(input.files[0]);
+        }
+    }
+
+    // 简单的错误震动动画
+    function shake() {
+        const box = document.querySelector('.box');
+        box.style.transform = 'translateX(5px)';
+        setTimeout(() => box.style.transform = 'translateX(-5px)', 50);
+        setTimeout(() => box.style.transform = 'translateX(5px)', 100);
+        setTimeout(() => box.style.transform = 'translateX(0)', 150);
+    }
+</script>
+</body>
+</html>

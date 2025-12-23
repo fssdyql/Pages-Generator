@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>远程API验证加密器</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:900px;margin:20px auto;padding:20px;background:#f0f2f5;color:#1f2937}
+    .step{background:#fff;padding:25px;border-radius:12px;box-shadow:0 2px 5px rgba(0,0,0,0.05);margin-bottom:20px;border:1px solid #e5e7eb}
+    h2{margin-top:0;font-size:18px;color:#111827;border-bottom:1px solid #eee;padding-bottom:10px;margin-bottom:15px}
+    label{display:block;font-weight:600;font-size:14px;margin-bottom:5px;color:#4b5563}
+    input, textarea, select{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-family:monospace;margin-bottom:15px;font-size:14px}
+    input:focus, textarea:focus{border-color:#3b82f6;outline:none;box-shadow:0 0 0 2px rgba(59,130,246,0.1)}
+    .highlight{background:#eff6ff;padding:15px;border-radius:6px;border:1px dashed #3b82f6;color:#1e40af;font-size:13px;line-height:1.6;margin-bottom:15px}
+    button{background:#3b82f6;color:white;border:none;padding:12px 24px;border-radius:6px;font-weight:bold;cursor:pointer;font-size:15px;transition:0.2s}
+    button:hover{background:#2563eb}
+    code{background:#e0e7ff;color:#3730a3;padding:2px 4px;border-radius:4px;font-family:monospace}
+</style>
+</head>
+<body>
+
+<!-- 第一步：生成核心密钥 -->
+<div class="step">
+    <h2>1. 生成真正的解密密钥</h2>
+    <p class="highlight">
+        这是系统刚刚生成的随机密钥。<b>请务必复制保存好！</b><br>
+        你需要把这个字符串放到你的 API 返回值里。如果弄丢了，加密后的网页将永远无法打开。
+    </p>
+    <label>系统生成的解密密钥 (Real Key):</label>
+    <div style="display:flex;gap:10px;margin-bottom:15px">
+        <input type="text" id="realKey" readonly style="background:#f9fafb;color:#059669;font-weight:bold">
+        <button onclick="genKey()" style="background:#10b981;white-space:nowrap">🔄 重新生成</button>
+        <button onclick="copyKey()" style="background:#6b7280;white-space:nowrap">📋 复制</button>
+    </div>
+</div>
+
+<!-- 第二步：配置 API -->
+<div class="step">
+    <h2>2. 配置 API 接口逻辑</h2>
+    <label>API 请求地址模板 (使用 {KEY} 代表用户输入的内容):</label>
+    <input type="text" id="apiUrl" placeholder="https://api.example.com/check?token={KEY}" value="https://example.com/api/verify?code={KEY}">
+    
+    <label>API 返回数据类型:</label>
+    <select id="resType">
+        <option value="json_prop">JSON 对象 (推荐)</option>
+        <option value="text">纯文本 (Response Body 直接是密钥)</option>
+    </select>
+
+    <div id="jsonPathBox">
+        <label>JSON 字段路径 (密钥在返回JSON的哪个字段里?):</label>
+        <input type="text" id="jsonPath" placeholder="data.secret_key" value="data.key">
+        <p style="font-size:12px;color:#666">例如 API 返回 <code>{"status":200, "data": {"key": "abc"}}</code>，则填 <code>data.key</code></p>
+    </div>
+</div>
+
+<!-- 第三步：加密 -->
+<div class="step">
+    <h2>3. 粘贴源代码并生成</h2>
+    <textarea id="sourceHtml" placeholder="在此粘贴原来的 HTML 代码..." style="height:150px"></textarea>
+    <button onclick="doEncrypt()" style="width:100%">🔒 生成离线文件</button>
+</div>
+
+<!-- 结果 -->
+<div class="step" id="resArea" style="display:none">
+    <h2>4. 生成结果</h2>
+    <textarea id="finalHtml" readonly style="height:200px"></textarea>
+    <p>将上方代码保存为 <code>index.html</code> 发布即可。</p>
+</div>
+
+<script>
+    function genKey() {
+        document.getElementById('realKey').value = CryptoJS.lib.WordArray.random(32).toString();
+    }
+    
+    function copyKey() {
+        navigator.clipboard.writeText(document.getElementById('realKey').value);
+        alert('密钥已复制！请确保你把它配置到了你的API中。');
+    }
+
+    document.getElementById('resType').addEventListener('change', function(){
+        document.getElementById('jsonPathBox').style.display = this.value === 'json_prop' ? 'block' : 'none';
+    });
+
+    function doEncrypt() {
+        const realKey = document.getElementById('realKey').value;
+        const source = document.getElementById('sourceHtml').value;
+        const urlTemplate = document.getElementById('apiUrl').value;
+        const resType = document.getElementById('resType').value;
+        const jsonPath = document.getElementById('jsonPath').value;
+
+        if(!realKey || !source || !urlTemplate) return alert('请填写完整信息');
+
+        // 使用 RealKey 加密源码
+        const encrypted = CryptoJS.AES.encrypt(source, realKey).toString();
+
+        // 构建最终 HTML
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restricted Access</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+body{background:#111;color:#eee;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
+.c{text-align:center;width:300px}
+input{background:#222;border:1px solid #444;color:#fff;padding:12px;width:100%;border-radius:4px;margin-bottom:10px;text-align:center;font-size:16px;outline:none}
+input:focus{border-color:#0ea5e9}
+button{background:#0ea5e9;color:#fff;border:none;padding:12px;width:100%;border-radius:4px;cursor:pointer;font-weight:bold}
+button:disabled{background:#444;cursor:wait}
+.loading{display:none;margin-top:10px;color:#888;font-size:12px}
+.err{color:#f43f5e;font-size:12px;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+<div class="c" id="login">
+    <h3 style="margin-bottom:20px">🔐 身份验证</h3>
+    <input type="text" id="k" placeholder="输入 API 授权码 / Token" onkeyup="if(event.key==='Enter')verify()">
+    <button id="b" onclick="verify()">验证并获取权限</button>
+    <div class="loading" id="l">正在连接鉴权服务器...</div>
+    <div class="err" id="e"></div>
+</div>
+<script>
+const D = "${encrypted}"; // 加密后的数据
+const T = "${urlTemplate}"; // API 模板
+
+async function verify() {
+    const k = document.getElementById('k').value.trim();
+    if(!k) return;
+    
+    const ui = {
+        b: document.getElementById('b'),
+        l: document.getElementById('l'),
+        e: document.getElementById('e')
+    };
+    
+    ui.b.disabled = true;
+    ui.l.style.display = 'block';
+    ui.e.style.display = 'none';
+
+    try {
+        // 1. 替换模板中的 {KEY}
+        const api = T.replace('{KEY}', encodeURIComponent(k));
+        
+        // 2. 请求 API
+        const res = await fetch(api);
+        if(!res.ok) throw new Error('API 拒绝访问 (403/404)');
+        
+        let realKey = '';
+        
+        // 3. 解析密钥
+        ${resType === 'json_prop' 
+          ? `const json = await res.json();
+             // 简单的路径解析 (如 data.key)
+             realKey = "${jsonPath}".split('.').reduce((o,i)=>o?o[i]:null, json);` 
+          : `realKey = await res.text();`}
+        
+        if(!realKey) throw new Error('鉴权通过，但未返回有效密钥');
+
+        realKey = realKey.trim();
+
+        // 4. 尝试解密
+        const bytes = CryptoJS.AES.decrypt(D, realKey);
+        const original = bytes.toString(CryptoJS.enc.Utf8);
+        
+        if(!original) throw new Error('密钥错误 (解密失败)');
+
+        // 5. 写入页面
+        document.open();
+        document.write(original);
+        document.close();
+
+    } catch (err) {
+        console.error(err);
+        ui.e.innerText = "验证失败: " + err.message;
+        ui.e.style.display = 'block';
+        ui.b.disabled = false;
+        ui.l.style.display = 'none';
+        // 动画震动
+        const box = document.getElementById('login');
+        box.style.transform = 'translateX(5px)';
+        setTimeout(()=>box.style.transform='translateX(0)', 100);
+        setTimeout(()=>box.style.transform='translateX(-5px)', 200);
+        setTimeout(()=>box.style.transform='translateX(0)', 300);
+    }
+}
+<\/script>
+</body>
+</html>`;
+
+        document.getElementById('finalHtml').value = html;
+        document.getElementById('resArea').style.display = 'block';
+    }
+    
+    // 初始化生成一个Key
+    genKey();
+</script>
+</body>
+</html>

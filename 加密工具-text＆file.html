@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>全能网页加密器 (多密钥/文件锁)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:800px;margin:20px auto;padding:20px;background:#f8fafc;color:#334155}
+    .card{background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);margin-bottom:20px;border:1px solid #e2e8f0}
+    h2{margin-top:0;font-size:18px;border-bottom:1px solid #eee;padding-bottom:10px}
+    textarea{width:100%;height:150px;font-family:monospace;padding:10px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box}
+    .input-group{margin-bottom:10px;display:flex;gap:10px}
+    input[type="text"]{flex:1;padding:8px;border:1px solid #cbd5e1;border-radius:6px}
+    button{padding:8px 16px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600}
+    button:hover{background:#2563eb}
+    button.red{background:#ef4444}
+    button.green{background:#10b981}
+    .list-item{background:#f1f5f9;padding:8px;margin-bottom:5px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:14px}
+    .tag{font-size:12px;padding:2px 6px;border-radius:4px;background:#e2e8f0;color:#64748b;margin-right:8px}
+</style>
+</head>
+<body>
+
+<div class="card">
+    <h2>1. 原始内容</h2>
+    <textarea id="originalHtml" placeholder="粘贴你的 HTML 代码..."></textarea>
+</div>
+
+<div class="card">
+    <h2>2. 配置钥匙 (Key Vault)</h2>
+    
+    <!-- 普通文本密码 -->
+    <div class="input-group">
+        <input type="text" id="txtPass" placeholder="添加普通密码 (如: 123456)">
+        <button onclick="addTextKey()">添加密码</button>
+    </div>
+
+    <!-- 文件密钥 -->
+    <div class="input-group" style="align-items:center;border-top:1px dashed #eee;padding-top:10px;margin-top:10px">
+        <input type="file" id="fileInput">
+        <button onclick="addFileKey()">添加文件锁</button>
+    </div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px">提示：文件锁会将文件的二进制哈希值作为密码。用户必须上传完全相同的文件才能解锁。</div>
+
+    <!-- 日期动态密码 -->
+    <div class="input-group" style="border-top:1px dashed #eee;padding-top:10px">
+        <button class="green" onclick="addDateKeys()">📅 一键生成未来30天的日期密码</button>
+    </div>
+
+    <div id="keyList" style="margin-top:15px;border-top:2px solid #f1f5f9;padding-top:10px"></div>
+</div>
+
+<div class="card">
+    <h2>3. 生成结果</h2>
+    <button onclick="generate()" style="width:100%;padding:15px;font-size:16px">🚀 生成超级加密页面</button>
+    <textarea id="finalHtml" readonly placeholder="代码将在这里生成..." style="margin-top:15px;height:200px"></textarea>
+</div>
+
+<script>
+    let keys = []; // 存储所有待加密的密钥
+    
+    // 生成随机主密钥
+    function generateMasterKey() {
+        return CryptoJS.lib.WordArray.random(32).toString(); // 256-bit key
+    }
+
+    function renderKeys() {
+        const div = document.getElementById('keyList');
+        div.innerHTML = keys.map((k, i) => `
+            <div class="list-item">
+                <span><span class="tag">${k.type}</span>${k.desc}</span>
+                <button class="red" onclick="keys.splice(${i},1);renderKeys()" style="padding:4px 10px;font-size:12px">删除</button>
+            </div>
+        `).join('');
+    }
+
+    function addTextKey() {
+        const p = document.getElementById('txtPass').value;
+        if(!p) return;
+        keys.push({type: 'PASSWORD', val: p, desc: p});
+        document.getElementById('txtPass').value = '';
+        renderKeys();
+    }
+
+    function addFileKey() {
+        const f = document.getElementById('fileInput').files[0];
+        if(!f) return alert('请选择文件');
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            // 计算文件的 SHA256 作为密钥
+            const fileHash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+            keys.push({type: 'FILE', val: fileHash, desc: '文件: ' + f.name});
+            renderKeys();
+        };
+        reader.readAsArrayBuffer(f);
+    }
+
+    function addDateKeys() {
+        const today = new Date();
+        for(let i=0; i<30; i++) {
+            const d = new Date(today);
+            d.setDate(today.getDate() + i);
+            const str = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+            keys.push({type: 'DATE', val: str, desc: '日期: ' + str});
+        }
+        renderKeys();
+    }
+
+    function generate() {
+        const content = document.getElementById('originalHtml').value;
+        if(!content || keys.length === 0) return alert('请填写内容并至少添加一个钥匙！');
+
+        const masterKey = generateMasterKey();
+        
+        // 1. 用主密钥加密真正的内容
+        const encryptedContent = CryptoJS.AES.encrypt(content, masterKey).toString();
+
+        // 2. 构建钥匙包 (Vault)
+        // 每一个 Vault Item 都是用用户的密码加密后的 MasterKey
+        // 我们在 MasterKey 前面加一个特征码 "OK|"，解密后用来验证是否成功
+        const verificationToken = "VERIFY_OK|";
+        const vault = keys.map(k => {
+            return CryptoJS.AES.encrypt(verificationToken + masterKey, k.val).toString();
+        });
+
+        const template = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>加密档案</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+body{background:#0f172a;color:#cbd5e1;font-family:monospace;display:flex;height:100vh;margin:0;align-items:center;justify-content:center}
+.box{background:#1e293b;padding:30px;border-radius:12px;border:1px solid #334155;width:90%;max-width:360px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3)}
+h2{color:#fff;margin-top:0;text-align:center;font-size:20px;letter-spacing:1px}
+.tab-row{display:flex;margin-bottom:20px;border-bottom:1px solid #334155}
+.tab{flex:1;text-align:center;padding:10px;cursor:pointer;transition:0.2s;color:#64748b}
+.tab.active{color:#3b82f6;border-bottom:2px solid #3b82f6}
+.panel{display:none}
+.panel.active{display:block}
+input{width:100%;background:#0f172a;border:1px solid #334155;color:#fff;padding:12px;border-radius:6px;box-sizing:border-box;margin-bottom:15px;font-family:monospace}
+button{width:100%;padding:12px;background:#3b82f6;color:white;border:none;border-radius:6px;font-weight:bold;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+.file-area{border:2px dashed #334155;padding:20px;text-align:center;border-radius:8px;margin-bottom:15px;cursor:pointer;transition:0.2s}
+.file-area:hover{border-color:#3b82f6;background:#1e293b}
+#msg{text-align:center;margin-top:15px;font-size:12px;color:#ef4444;height:16px}
+</style>
+</head>
+<body>
+<div class="box" id="loginUI">
+    <h2>🔒 ACCESS CONTROL</h2>
+    <div class="tab-row">
+        <div class="tab active" onclick="sw(0)">密码输入</div>
+        <div class="tab" onclick="sw(1)">文件密钥</div>
+    </div>
+    
+    <!-- 密码面板 -->
+    <div class="panel active" id="p0">
+        <input type="password" id="kInput" placeholder="输入密钥或日期(YYYYMMDD)..." onkeyup="if(event.key==='Enter')tryDec(this.value)">
+        <button onclick="tryDec(document.getElementById('kInput').value)">UNLOCK</button>
+    </div>
+
+    <!-- 文件面板 -->
+    <div class="panel" id="p1">
+        <div class="file-area" onclick="document.getElementById('fInput').click()">
+            <div id="fName">点击选择密钥文件</div>
+        </div>
+        <input type="file" id="fInput" style="display:none" onchange="handleFile(this)">
+        <button onclick="unlockFile()">UNLOCK WITH FILE</button>
+    </div>
+    
+    <div id="msg"></div>
+</div>
+
+<script>
+const vault = ${JSON.stringify(vault)};
+const payload = "${encryptedContent}";
+let fileKey = null;
+
+function sw(i){
+    document.querySelectorAll('.tab').forEach((t,n)=>t.classList.toggle('active',n===i));
+    document.querySelectorAll('.panel').forEach((p,n)=>p.classList.toggle('active',n===i));
+    document.getElementById('msg').innerText = '';
+}
+
+function handleFile(el){
+    const f=el.files[0];
+    if(f){
+        document.getElementById('fName').innerText = "📄 " + f.name;
+        const r = new FileReader();
+        r.onload = e => {
+            // 计算文件Hash
+            const wa = CryptoJS.lib.WordArray.create(e.target.result);
+            fileKey = CryptoJS.SHA256(wa).toString();
+        };
+        r.readAsArrayBuffer(f);
+    }
+}
+
+function unlockFile(){
+    if(!fileKey) return msg('请先选择文件');
+    tryDec(fileKey);
+}
+
+function msg(t){document.getElementById('msg').innerText=t;}
+
+function tryDec(keyVal){
+    if(!keyVal) return msg('请输入密钥');
+    
+    // 遍历钥匙包，尝试用当前key解密任意一个
+    let masterKey = null;
+    for(let item of vault){
+        try{
+            const bytes = CryptoJS.AES.decrypt(item, keyVal);
+            const str = bytes.toString(CryptoJS.enc.Utf8);
+            if(str.startsWith("VERIFY_OK|")){
+                masterKey = str.split('|')[1];
+                break;
+            }
+        }catch(e){}
+    }
+
+    if(masterKey){
+        try{
+            const bytes = CryptoJS.AES.decrypt(payload, masterKey);
+            const html = bytes.toString(CryptoJS.enc.Utf8);
+            if(!html) throw new Error();
+            document.open();
+            document.write(html);
+            document.close();
+        }catch(e){
+            msg('主数据损坏');
+        }
+    }else{
+        msg('密钥无效 / Access Denied');
+        // 动画效果
+        const b = document.querySelector('.box');
+        b.style.transform='translateX(5px)';
+        setTimeout(()=>b.style.transform='translateX(0)',100);
+        setTimeout(()=>b.style.transform='translateX(-5px)',200);
+        setTimeout(()=>b.style.transform='translateX(0)',300);
+    }
+}
+<\/script>
+</body>
+</html>`;
+        document.getElementById('finalHtml').value = template;
+    }
+</script>
+</body>
+</html>

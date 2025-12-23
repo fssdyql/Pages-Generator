@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>离线网页发布专用加密器</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+    body{font-family:"Segoe UI",Roboto,sans-serif;background:#f1f5f9;color:#334155;max-width:900px;margin:20px auto;padding:20px}
+    .card{background:#fff;border-radius:12px;padding:24px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);margin-bottom:20px}
+    h2{margin-top:0;font-size:18px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;color:#0f172a}
+    textarea{width:100%;height:150px;font-family:monospace;padding:12px;border:1px solid #cbd5e1;border-radius:8px;resize:vertical;font-size:13px;display:block;box-sizing:border-box}
+    .row{display:flex;gap:10px;margin-bottom:10px}
+    input[type="text"]{flex:1;padding:10px;border:1px solid #cbd5e1;border-radius:6px}
+    button{padding:10px 20px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;transition:0.2s}
+    button:hover{filter:brightness(0.95)}
+    button.red{background:#ef4444}
+    button.green{background:#10b981}
+    .key-list{margin-top:15px;background:#f8fafc;padding:10px;border-radius:8px;border:1px dashed #cbd5e1}
+    .key-item{display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;margin-bottom:6px;border-radius:6px;border:1px solid #e2e8f0;font-size:14px}
+    .badge{font-size:12px;padding:2px 6px;border-radius:4px;background:#e0f2fe;color:#0369a1;margin-right:8px}
+    .badge.file{background:#fce7f3;color:#be185d}
+</style>
+</head>
+<body>
+
+<!-- 第一步：粘贴源码 -->
+<div class="card">
+    <h2>1. 粘贴原本的离线网页代码</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:10px">请将你最开始发给我的那个包含 `DB`、`野草.js`、`download` 功能的完整 HTML 粘贴在下面：</p>
+    <textarea id="srcHtml" placeholder="<!DOCTYPE html>..."></textarea>
+</div>
+
+<!-- 第二步：配置钥匙 -->
+<div class="card">
+    <h2>2. 配置解锁方式 (Key Vault)</h2>
+    
+    <!-- 文本密码 -->
+    <div class="row">
+        <input type="text" id="txtPass" placeholder="输入密码 (如: 123456)">
+        <button onclick="addKey('PASS')">➕ 添加密码</button>
+    </div>
+
+    <!-- 文件密码 -->
+    <div class="row" style="border-top:1px dashed #e2e8f0;padding-top:15px;margin-top:15px">
+        <input type="file" id="filePass">
+        <button class="green" onclick="addFileKey()">➕ 添加文件锁 (上传文件)</button>
+    </div>
+    <div style="font-size:12px;color:#64748b">文件锁原理：用户必须上传<b>完全相同</b>的文件（检查哈希值）才能解锁。</div>
+
+    <!-- 钥匙列表 -->
+    <div class="key-list" id="keyList">
+        <div style="text-align:center;color:#94a3b8;font-size:12px">暂无钥匙，请添加...</div>
+    </div>
+</div>
+
+<!-- 第三步：生成 -->
+<div class="card">
+    <h2>3. 生成最终文件</h2>
+    <button onclick="generate()" style="width:100%;height:50px;font-size:16px">🔒 生成加密网页 (index.html)</button>
+    <textarea id="resHtml" readonly placeholder="生成结果将显示在这里..." style="margin-top:15px;height:200px;background:#f8fafc"></textarea>
+</div>
+
+<script>
+    let vaultKeys = []; // 存储所有的钥匙
+
+    // 渲染钥匙列表
+    function render() {
+        const el = document.getElementById('keyList');
+        if(vaultKeys.length===0) {
+            el.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:12px">暂无钥匙，请添加...</div>';
+            return;
+        }
+        el.innerHTML = vaultKeys.map((k,i)=>`
+            <div class="key-item">
+                <span><span class="badge ${k.type==='FILE'?'file':''}">${k.type}</span> ${k.desc}</span>
+                <button class="red" style="padding:4px 10px;font-size:12px" onclick="delKey(${i})">删除</button>
+            </div>
+        `).join('');
+    }
+
+    function addKey(type) {
+        const val = document.getElementById('txtPass').value.trim();
+        if(!val) return;
+        vaultKeys.push({type: 'PASS', val: val, desc: val});
+        document.getElementById('txtPass').value = '';
+        render();
+    }
+
+    function addFileKey() {
+        const f = document.getElementById('filePass').files[0];
+        if(!f) return alert('请选择文件');
+        const reader = new FileReader();
+        reader.onload = e => {
+            const hash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+            vaultKeys.push({type: 'FILE', val: hash, desc: '文件: '+f.name});
+            render();
+        };
+        reader.readAsArrayBuffer(f);
+    }
+
+    function delKey(i){ vaultKeys.splice(i,1); render(); }
+
+    function generate() {
+        const source = document.getElementById('srcHtml').value;
+        if(!source || vaultKeys.length === 0) return alert("请粘贴源码并至少添加一把钥匙！");
+
+        // 1. 生成随机主密钥 (Master Key)
+        const masterKey = CryptoJS.lib.WordArray.random(32).toString();
+
+        // 2. 用主密钥加密原本的 HTML
+        const encryptedSource = CryptoJS.AES.encrypt(source, masterKey).toString();
+
+        // 3. 构建钥匙包 (Vault)
+        // 每一个 Vault Item 都是：用用户的密码加密后的 (MasterKey + 校验码)
+        const checkToken = "OK_LX_UNLOCK|";
+        const vaultData = vaultKeys.map(k => {
+            return CryptoJS.AES.encrypt(checkToken + masterKey, k.val).toString();
+        });
+
+        // 4. 生成最终 HTML 模板
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restricted Access</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+body{background:#111827;display:flex;height:100vh;justify-content:center;align-items:center;margin:0;font-family:monospace;color:#e2e8f0}
+.box{width:90%;max-width:380px;background:#1e293b;padding:30px;border-radius:16px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);border:1px solid #334155}
+h3{text-align:center;margin-top:0;color:#38bdf8;letter-spacing:1px}
+.tab{display:flex;margin-bottom:20px;border-bottom:1px solid #334155}
+.tab span{flex:1;text-align:center;padding:10px;cursor:pointer;transition:0.3s;color:#64748b}
+.tab span.active{color:#38bdf8;border-bottom:2px solid #38bdf8}
+.p{display:none}
+.p.active{display:block}
+input{width:100%;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#fff;outline:none;box-sizing:border-box;margin-bottom:15px;text-align:center}
+input:focus{border-color:#38bdf8}
+button{width:100%;padding:12px;background:#38bdf8;color:#0f172a;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+.file-box{border:2px dashed #334155;padding:20px;text-align:center;border-radius:8px;margin-bottom:15px;cursor:pointer}
+.file-box:hover{border-color:#38bdf8;background:#0f172a}
+#msg{text-align:center;margin-top:15px;color:#f43f5e;font-size:12px;min-height:18px}
+</style>
+</head>
+<body>
+<div class="box" id="ui">
+    <h3>🔒 LX Source Protect</h3>
+    <div class="tab">
+        <span class="active" onclick="s(0)">密码解锁</span>
+        <span onclick="s(1)">文件解锁</span>
+    </div>
+    
+    <!-- 密码面板 -->
+    <div class="p active">
+        <input type="password" id="kp" placeholder="请输入访问密钥..." onkeyup="if(event.key==='Enter')dec(this.value)">
+        <button onclick="dec(document.getElementById('kp').value)">解锁内容</button>
+    </div>
+
+    <!-- 文件面板 -->
+    <div class="p">
+        <div class="file-box" onclick="document.getElementById('kf').click()">
+            <div id="fn">📁 点击选择密钥文件</div>
+        </div>
+        <input type="file" id="kf" style="display:none" onchange="readF(this)">
+        <button onclick="decFile()">解锁内容</button>
+    </div>
+    
+    <div id="msg"></div>
+</div>
+
+<script>
+// 这里存储了加密后的主密钥列表和网页内容
+const V = ${JSON.stringify(vaultData)};
+const C = "${encryptedSource}";
+let fk = null;
+
+function s(i){
+    document.querySelectorAll('.tab span').forEach((e,n)=>e.classList.toggle('active',i===n));
+    document.querySelectorAll('.p').forEach((e,n)=>e.classList.toggle('active',i===n));
+    msg('');
+}
+
+function readF(el){
+    if(!el.files[0]) return;
+    document.getElementById('fn').innerText = "📄 " + el.files[0].name;
+    const r = new FileReader();
+    r.onload = e => {
+        // 计算文件哈希作为密钥
+        fk = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+    };
+    r.readAsArrayBuffer(el.files[0]);
+}
+
+function decFile(){ if(fk) dec(fk); else msg('请先选择文件'); }
+
+function msg(t){ 
+    const m = document.getElementById('msg');
+    m.innerText=t; 
+    if(t) {
+        const b=document.getElementById('ui');
+        b.style.transform='translateX(5px)';
+        setTimeout(()=>b.style.transform='translateX(0)',100);
+        setTimeout(()=>b.style.transform='translateX(-5px)',200);
+        setTimeout(()=>b.style.transform='translateX(0)',300);
+    }
+}
+
+function dec(key){
+    if(!key) return msg('请输入密钥');
+    
+    let mk = null;
+    // 尝试遍历所有的锁，看看这把钥匙能开哪一个
+    for(let i=0; i<V.length; i++){
+        try{
+            const bytes = CryptoJS.AES.decrypt(V[i], key);
+            const str = bytes.toString(CryptoJS.enc.Utf8);
+            if(str.startsWith("OK_LX_UNLOCK|")){
+                mk = str.split('|')[1];
+                break;
+            }
+        }catch(e){}
+    }
+
+    if(mk){
+        try{
+            // 用提取出的主密钥解密真正的网页
+            const bytes = CryptoJS.AES.decrypt(C, mk);
+            const originalHtml = bytes.toString(CryptoJS.enc.Utf8);
+            if(!originalHtml) throw new Error();
+            
+            // 核心步骤：重写整个文档，恢复原本的功能
+            document.open();
+            document.write(originalHtml);
+            document.close();
+        }catch(e){
+            msg('数据损坏，无法还原');
+        }
+    }else{
+        msg('密钥错误 / 文件不匹配');
+    }
+}
+<\/script>
+</body>
+</html>`;
+
+        document.getElementById('resHtml').value = html;
+    }
+</script>
+</body>
+</html>

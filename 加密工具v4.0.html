@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>网页加密发布工具 </title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+    :root { --primary: #3b82f6; }
+    body{font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#f1f5f9; color:#334155; margin:0; padding:20px;}
+    .container{max-width:1000px; margin:0 auto;}
+    
+    .card{background:#fff; border-radius:12px; padding:25px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom:20px; border:1px solid #e2e8f0;}
+    h2{margin-top:0; font-size:18px; border-bottom:1px solid #f1f5f9; padding-bottom:12px; color:#0f172a; display:flex; align-items:center; gap:10px;}
+    
+    .badge{background:var(--primary); color:#fff; font-size:12px; padding:2px 8px; border-radius:10px; font-weight:normal;}
+    .badge.green{background:#10b981;}
+    .badge.purple{background:#8b5cf6;}
+
+    .row{display:flex; gap:15px; margin-bottom:15px; align-items:center;}
+    .col{flex:1; display:flex; flex-direction:column; gap:5px;}
+    
+    label{font-size:13px; font-weight:600; color:#64748b;}
+    input[type="text"], input[type="number"], textarea, select{padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px; width:100%; box-sizing:border-box;}
+    input[type="color"]{width:50px; height:40px; border:none; padding:0; background:none; cursor:pointer;}
+    input[type="range"]{width:100%;}
+    
+    button{padding:10px 18px; background:var(--primary); color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600; transition:0.2s;}
+    button:hover{filter:brightness(0.95);}
+    button.gray{background:#64748b;}
+    button.red{background:#ef4444;}
+    
+    .key-display{background:#ecfdf5; color:#047857; padding:15px; border-radius:8px; border:1px dashed #34d399; font-family:monospace; word-break:break-all; font-weight:bold; margin-bottom:15px;}
+    
+    .preview-box{
+        margin-top:20px; border:1px solid #ddd; border-radius:8px; overflow:hidden; position:relative; height:300px; 
+        background-size:cover; background-position:center; display:flex; justify-content:center; align-items:center;
+    }
+    .preview-card{
+        width:280px; padding:20px; border-radius:12px; backdrop-filter:blur(10px); text-align:center;
+        box-shadow:0 10px 25px rgba(0,0,0,0.2);
+    }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div style="text-align:center; margin-bottom:30px;">
+        <h1 style="font-size:24px; color:#1e293b;">🔒 网页加密发布工具 <span style="font-size:14px; color:#64748b; font-weight:normal;">v4.0 Theme Edition</span></h1>
+    </div>
+
+    <!-- 1. 密钥管理 -->
+    <div class="card">
+        <h2>1. 系统主密钥 <span class="badge green">核心</span></h2>
+        <p style="font-size:13px; color:#64748b;">API 验证通过后必须返回此密钥。本地密码也会加密此密钥。</p>
+        <div class="key-display" id="masterKeyDisplay">生成中...</div>
+        <div class="row">
+            <button class="gray" onclick="genMasterKey()">🔄 刷新密钥</button>
+            <button onclick="copyMasterKey()">📋 复制 (给后端用)</button>
+        </div>
+    </div>
+
+    <!-- 2. 源码输入 -->
+    <div class="card">
+        <h2>2. 原始内容 <span class="badge">Source</span></h2>
+        <textarea id="srcHtml" style="height:100px;" placeholder="在此粘贴你的 LX 插件 HTML 完整代码..."></textarea>
+    </div>
+
+    <!-- 3. 解锁配置 -->
+    <div class="card">
+        <h2>3. 解锁方式配置</h2>
+        
+        <!-- API -->
+        <div style="background:#f8fafc; padding:15px; border-radius:8px; margin-bottom:15px;">
+            <div class="row">
+                <input type="checkbox" id="useApi" onchange="toggleApi(this.checked)"> 
+                <label for="useApi" style="font-size:15px; color:#333;">启用远程 API 验证</label>
+            </div>
+            <div id="apiConfig" style="display:none; padding-left:25px;">
+                <div class="row">
+                    <div class="col">
+                        <label>API URL ({KEY} 代表用户输入)</label>
+                        <input type="text" id="apiUrl" placeholder="https://api.site.com/auth?token={KEY}">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <label>返回类型</label>
+                        <select id="apiType">
+                            <option value="text">纯文本 (Response直接是Key)</option>
+                            <option value="json">JSON 对象</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label>JSON路径 (如 data.secret)</label>
+                        <input type="text" id="apiPath" placeholder="data.key">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 本地 -->
+        <div style="background:#f8fafc; padding:15px; border-radius:8px;">
+            <label style="font-size:15px; color:#333; margin-bottom:10px; display:block;">本地备用解锁 (离线)</label>
+            <div class="row">
+                <input type="text" id="txtPass" placeholder="添加密码 (如 123456)">
+                <button onclick="addPass()">➕ 添加密码</button>
+            </div>
+            <div class="row">
+                <input type="file" id="filePass">
+                <button class="gray" onclick="addFile()">➕ 添加文件锁</button>
+            </div>
+            <div id="vaultList" style="margin-top:10px;"></div>
+        </div>
+    </div>
+
+    <!-- 4. 主题自定义 -->
+    <div class="card">
+        <h2>4. 界面主题自定义 <span class="badge purple">New</span></h2>
+        
+        <div class="row">
+            <div class="col">
+                <label>页面标题 (Tab Title)</label>
+                <input type="text" id="t_pageTitle" value="Restricted Access" oninput="updatePreview()">
+            </div>
+            <div class="col">
+                <label>卡片标题 (H2)</label>
+                <input type="text" id="t_cardTitle" value="🔐 ACCESS CONTROL" oninput="updatePreview()">
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col">
+                <label>背景图片 URL (留空则纯色)</label>
+                <input type="text" id="t_bgImg" placeholder="https://..." oninput="updatePreview()">
+            </div>
+            <div class="col" style="flex:0 0 100px;">
+                <label>背景底色</label>
+                <input type="color" id="t_bgColor" value="#111827" oninput="updatePreview()">
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col">
+                <label>主题强调色 (按钮/高亮)</label>
+                <input type="color" id="t_accentColor" value="#3b82f6" oninput="updatePreview()">
+            </div>
+            <div class="col">
+                <label>文字颜色</label>
+                <input type="color" id="t_textColor" value="#ffffff" oninput="updatePreview()">
+            </div>
+            <div class="col">
+                <label>卡片背景色</label>
+                <input type="color" id="t_cardBg" value="#1e293b" oninput="updatePreview()">
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col">
+                <label>卡片透明度 (0-100%)</label>
+                <input type="range" id="t_cardOpacity" min="0" max="100" value="90" oninput="updatePreview()">
+            </div>
+            <div class="col">
+                <label>磨砂模糊度 (Blur)</label>
+                <input type="range" id="t_blur" min="0" max="20" value="0" oninput="updatePreview()">
+            </div>
+            <div class="col">
+                <label>卡片圆角</label>
+                <input type="range" id="t_radius" min="0" max="30" value="12" oninput="updatePreview()">
+            </div>
+        </div>
+
+        <!-- 实时预览 -->
+        <label>实时预览效果：</label>
+        <div class="preview-box" id="p_box">
+            <div class="preview-card" id="p_card">
+                <h3 id="p_title" style="margin-top:0;">Title</h3>
+                <div style="border-bottom:1px solid rgba(255,255,255,0.2); margin-bottom:15px; padding-bottom:10px; display:flex; justify-content:center; gap:15px;">
+                    <span style="border-bottom:2px solid currentColor">密码</span>
+                    <span style="opacity:0.6">文件</span>
+                </div>
+                <input type="text" disabled placeholder="输入密钥..." style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.2); color:inherit; margin-bottom:10px;">
+                <button id="p_btn" style="width:100%;">解锁</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 生成 -->
+    <div class="card">
+        <h2>5. 最终生成</h2>
+        <button onclick="generate()" style="width:100%; height:50px; font-size:18px;">🚀 生成 index.html</button>
+        <textarea id="finalHtml" readonly placeholder="生成结果..." style="height:200px; margin-top:15px;"></textarea>
+    </div>
+</div>
+
+<script>
+let masterKey = '';
+let vault = [];
+
+function genMasterKey() {
+    masterKey = CryptoJS.lib.WordArray.random(32).toString();
+    document.getElementById('masterKeyDisplay').innerText = masterKey;
+    vault = []; 
+    renderVault();
+}
+function copyMasterKey() { navigator.clipboard.writeText(masterKey); alert('已复制'); }
+
+function toggleApi(show) { document.getElementById('apiConfig').style.display = show ? 'block' : 'none'; }
+
+function addPass() {
+    const p = document.getElementById('txtPass').value;
+    if(!p) return;
+    const lock = CryptoJS.AES.encrypt("OK|" + masterKey, p).toString();
+    vault.push({type:'PASS', desc:p, lock:lock});
+    document.getElementById('txtPass').value='';
+    renderVault();
+}
+function addFile() {
+    const f = document.getElementById('filePass').files[0];
+    if(!f) return;
+    const r = new FileReader();
+    r.onload = e => {
+        const hash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+        const lock = CryptoJS.AES.encrypt("OK|" + masterKey, hash).toString();
+        vault.push({type:'FILE', desc:f.name, lock:lock});
+        renderVault();
+    };
+    r.readAsArrayBuffer(f);
+}
+function renderVault() {
+    document.getElementById('vaultList').innerHTML = vault.map((k,i)=>
+        `<div style="display:flex; justify-content:space-between; background:#eee; padding:5px 10px; margin-top:5px; border-radius:4px; font-size:13px;">
+            <span>[${k.type}] ${k.desc}</span> <button class="red" style="padding:2px 8px;" onclick="vault.splice(${i},1);renderVault()">删</button>
+        </div>`
+    ).join('');
+}
+
+// 预览更新逻辑
+function updatePreview() {
+    const bgImg = document.getElementById('t_bgImg').value;
+    const bgColor = document.getElementById('t_bgColor').value;
+    const accent = document.getElementById('t_accentColor').value;
+    const text = document.getElementById('t_textColor').value;
+    const cardBg = document.getElementById('t_cardBg').value;
+    const cardOp = document.getElementById('t_cardOpacity').value / 100;
+    const blur = document.getElementById('t_blur').value;
+    const radius = document.getElementById('t_radius').value;
+    const cardTitle = document.getElementById('t_cardTitle').value;
+
+    const box = document.getElementById('p_box');
+    const card = document.getElementById('p_card');
+    const btn = document.getElementById('p_btn');
+    const title = document.getElementById('p_title');
+
+    box.style.background = bgImg ? `url(${bgImg}) center/cover no-repeat` : bgColor;
+    
+    // Hex to RGB for opacity
+    const r=parseInt(cardBg.slice(1,3),16), g=parseInt(cardBg.slice(3,5),16), b=parseInt(cardBg.slice(5,7),16);
+    card.style.background = `rgba(${r},${g},${b},${cardOp})`;
+    card.style.backdropFilter = `blur(${blur}px)`;
+    card.style.borderRadius = `${radius}px`;
+    card.style.color = text;
+    
+    title.innerText = cardTitle;
+    btn.style.background = accent;
+    btn.style.color = "#fff"; // Assuming white text on accent
+}
+
+// 初始化
+genMasterKey();
+updatePreview();
+
+function generate() {
+    const src = document.getElementById('srcHtml').value;
+    if(!src) return alert('请先粘贴源代码');
+    const encryptedContent = CryptoJS.AES.encrypt(src, masterKey).toString();
+
+    // 收集配置
+    const useApi = document.getElementById('useApi').checked;
+    const apiConfig = {
+        enabled: useApi,
+        url: document.getElementById('apiUrl').value,
+        type: document.getElementById('apiType').value,
+        path: document.getElementById('apiPath').value
+    };
+    if(useApi && !apiConfig.url) return alert('请填写 API URL');
+    if(!useApi && vault.length===0) return alert('请至少配置一种解锁方式');
+
+    // 收集主题
+    const theme = {
+        pageTitle: document.getElementById('t_pageTitle').value,
+        cardTitle: document.getElementById('t_cardTitle').value,
+        bgImg: document.getElementById('t_bgImg').value,
+        bgColor: document.getElementById('t_bgColor').value,
+        accent: document.getElementById('t_accentColor').value,
+        text: document.getElementById('t_textColor').value,
+        radius: document.getElementById('t_radius').value + 'px',
+        blur: document.getElementById('t_blur').value + 'px'
+    };
+    
+    // 计算卡片 RGBA
+    const cBg = document.getElementById('t_cardBg').value;
+    const cOp = document.getElementById('t_cardOpacity').value / 100;
+    const r=parseInt(cBg.slice(1,3),16), g=parseInt(cBg.slice(3,5),16), b=parseInt(cBg.slice(5,7),16);
+    theme.cardRgba = `rgba(${r},${g},${b},${cOp})`;
+
+    // 生成代码
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${theme.pageTitle}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<style>
+:root {
+    --bg-color: ${theme.bgColor};
+    --bg-img: ${theme.bgImg ? `url('${theme.bgImg}')` : 'none'};
+    --accent: ${theme.accent};
+    --text: ${theme.text};
+    --card-bg: ${theme.cardRgba};
+    --card-blur: ${theme.blur};
+    --radius: ${theme.radius};
+}
+body {
+    margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-color);
+    background-image: var(--bg-img);
+    background-size: cover; background-position: center;
+    color: var(--text);
+}
+.box {
+    width: 90%; max-width: 400px;
+    background: var(--card-bg);
+    backdrop-filter: blur(var(--card-blur));
+    -webkit-backdrop-filter: blur(var(--card-blur));
+    padding: 30px; border-radius: var(--radius);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    transition: transform 0.1s;
+}
+h2 { margin-top: 0; text-align: center; font-weight: 600; letter-spacing: 0.5px; }
+.tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.tab { flex: 1; text-align: center; padding: 12px; cursor: pointer; opacity: 0.6; transition: 0.3s; border-bottom: 2px solid transparent; font-size: 14px;}
+.tab.active { opacity: 1; border-color: var(--accent); color: var(--accent); font-weight: bold; }
+.panel { display: none; animation: fadeIn 0.3s; }
+.panel.active { display: block; }
+@keyframes fadeIn { from{opacity:0; transform:translateY(5px)} to{opacity:1; transform:translateY(0)} }
+
+input {
+    width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.2); color: inherit; box-sizing: border-box; outline: none; text-align: center;
+}
+input:focus { border-color: var(--accent); background: rgba(0,0,0,0.3); }
+button {
+    width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;
+    background: var(--accent); color: #fff; font-size: 15px; transition: filter 0.2s;
+}
+button:hover { filter: brightness(1.1); }
+button:disabled { filter: grayscale(1); cursor: not-allowed; }
+
+.file-zone {
+    border: 2px dashed rgba(255,255,255,0.2); padding: 20px; text-align: center; border-radius: 8px;
+    cursor: pointer; margin-bottom: 15px; transition: 0.2s;
+}
+.file-zone:hover { border-color: var(--accent); background: rgba(255,255,255,0.05); }
+
+#msg { text-align: center; margin-top: 15px; font-size: 13px; color: #f43f5e; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="box" id="ui">
+    <h2>${theme.cardTitle}</h2>
+    
+    <div class="tabs">
+        ${useApi ? '<div class="tab active" onclick="sw(0)">API 验证</div>' : ''}
+        ${vault.length > 0 ? `<div class="tab ${!useApi?'active':''}" onclick="sw(1)">本地密钥</div>` : ''}
+    </div>
+
+    <!-- API Panel -->
+    ${useApi ? `
+    <div class="panel active" id="p0">
+        <input type="text" id="apiToken" placeholder="输入访问令牌" onkeyup="if(event.key==='Enter')doApi()">
+        <button id="btnApi" onclick="doApi()">验证并进入</button>
+    </div>` : ''}
+
+    <!-- Local Panel -->
+    ${vault.length > 0 ? `
+    <div class="panel ${!useApi?'active':''}" id="p1">
+        <input type="password" id="locPass" placeholder="输入访问密码" onkeyup="if(event.key==='Enter')doLocal()">
+        
+        <div style="text-align:center; font-size:12px; opacity:0.5; margin:10px 0;">或使用文件解锁</div>
+        
+        <div class="file-zone" onclick="document.getElementById('fIn').click()">
+            <div id="fn">📁 点击选择文件</div>
+        </div>
+        <input type="file" id="fIn" style="display:none" onchange="handleF(this)">
+        
+        <button onclick="doLocal()">解锁页面</button>
+    </div>` : ''}
+    
+    <div id="msg"></div>
+</div>
+
+<script>
+const C = "${encryptedContent}";
+const V = ${JSON.stringify(vault.map(v=>v.lock))};
+const API = ${JSON.stringify(apiConfig)};
+let fHash = null;
+
+function sw(n){
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', ${useApi ? 'i===n' : 'true'}));
+    document.querySelectorAll('.panel').forEach((p,i)=>p.classList.toggle('active', ${useApi ? 'i===n' : 'true'}));
+    msg('');
+}
+function msg(t){ 
+    const m = document.getElementById('msg');
+    m.innerText=t;
+    if(t) {
+        const b = document.getElementById('ui');
+        b.style.transform='translateX(5px)';
+        setTimeout(()=>b.style.transform='translateX(0)',100);
+        setTimeout(()=>b.style.transform='translateX(-5px)',200);
+        setTimeout(()=>b.style.transform='translateX(0)',300);
+    }
+}
+function handleF(el){
+    if(el.files[0]){
+        document.getElementById('fn').innerText = "📄 " + el.files[0].name;
+        const r = new FileReader();
+        r.onload = e => fHash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+        r.readAsArrayBuffer(el.files[0]);
+    }
+}
+function unlock(mk){
+    try{
+        const bytes = CryptoJS.AES.decrypt(C, mk);
+        const html = bytes.toString(CryptoJS.enc.Utf8);
+        if(!html) throw new Error();
+        document.open();
+        document.write(html);
+        document.close();
+    }catch(e){ msg("数据损坏或密钥错误"); }
+}
+function doLocal(){
+    const p = document.getElementById('locPass') ? document.getElementById('locPass').value : '';
+    const keys = [];
+    if(p) keys.push(p);
+    if(fHash) keys.push(fHash);
+    if(!keys.length) return msg("请输入密码或选择文件");
+
+    let mk = null;
+    for(let k of keys){
+        for(let lock of V){
+            try{
+                const bytes = CryptoJS.AES.decrypt(lock, k);
+                const str = bytes.toString(CryptoJS.enc.Utf8);
+                if(str.startsWith("OK|")){ mk = str.split('|')[1]; break; }
+            }catch(e){}
+        }
+        if(mk) break;
+    }
+    if(mk) unlock(mk); else msg("验证失败：密码错误");
+}
+async function doApi(){
+    const token = document.getElementById('apiToken').value;
+    if(!token) return msg("请输入 Token");
+    const btn = document.getElementById('btnApi');
+    btn.disabled = true; btn.innerText = "正在验证..."; msg("");
+    try {
+        const url = API.url.replace('{KEY}', encodeURIComponent(token));
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("API Error " + res.status);
+        let mk = "";
+        if(API.type === 'json'){
+            const data = await res.json();
+            mk = API.path.split('.').reduce((o,i)=>o?o[i]:null, data);
+        } else { mk = await res.text(); }
+        if(!mk) throw new Error("无效的响应");
+        unlock(mk.trim());
+    } catch(e) {
+        msg("API 验证失败");
+        console.error(e);
+        btn.disabled = false; btn.innerText = "验证并进入";
+    }
+}
+<\/script>
+</body>
+</html>`;
+
+    document.getElementById('finalHtml').value = html;
+}
+</script>
+</body>
+</html>
