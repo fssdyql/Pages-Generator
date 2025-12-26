@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>网页加密生成器</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js"></script>
+<style>
+    :root { --p: #2563eb; --bg: #f8fafc; }
+    body{font-family:"Segoe UI",sans-serif;background:var(--bg);color:#334155;margin:0;padding:20px;max-width:1200px;margin:auto}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,0.05);border:1px solid #e2e8f0;margin-bottom:20px}
+    h2{margin-top:0;font-size:16px;border-bottom:1px solid #f1f5f9;padding-bottom:10px;color:#0f172a;display:flex;justify-content:space-between;align-items:center}
+    
+    label{font-size:12px;font-weight:600;color:#64748b;display:block;margin-bottom:5px}
+    input[type=text],select{width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:10px;box-sizing:border-box}
+    button{padding:8px 16px;background:var(--p);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+    button:hover{filter:brightness(0.9)}
+    button.gray{background:#64748b}
+    
+    .guide-box{background:#1e293b;color:#e2e8f0;padding:15px;border-radius:8px;font-family:monospace;font-size:12px;overflow-x:auto;line-height:1.5}
+    .guide-tag{color:#38bdf8;font-weight:bold}
+    .guide-com{color:#94a3b8;font-style:italic}
+    
+    #editor-container{height:400px;border:1px solid #cbd5e1;border-radius:6px;overflow:hidden}
+    .preview-iframe{width:100%;height:300px;border:none;border-radius:6px;background:#fff;border:1px solid #cbd5e1}
+    
+    /* 新增样式 */
+    .multi-content-item {border:1px solid #e2e8f0;border-radius:6px;padding:15px;margin-bottom:15px;background:#f8fafc}
+    .multi-content-header {display:flex;justify-content:space-between;margin-bottom:10px}
+    .multi-content-locks {font-size:11px;color:#64748b;margin-top:5px}
+    .lock-tag {background:#e2e8f0;padding:2px 6px;border-radius:3px;margin-right:5px;display:inline-block;margin-bottom:3px}
+    .file-drop-zone {border:2px dashed #cbd5e1;border-radius:6px;padding:15px;margin-bottom:10px;background:#f8fafc;text-align:center;color:#64748b}
+    .file-drop-zone.dragover {border-color:#2563eb;background:#eff6ff}
+</style>
+</head>
+<body>
+
+<div style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
+    <h1 style="margin:0;font-size:20px">📦 离线网页加密生成器 <span style="font-size:12px;font-weight:normal;color:#64748b">v6.0-alpha1</span></h1>
+    <div>
+        <button class="gray" onclick="loadDefaultTemplate()">🔄 加载默认模板</button>
+        <button onclick="generate()">🚀 生成最终文件</button>
+    </div>
+</div>
+
+<div class="grid">
+    <!-- 左侧：配置区 -->
+    <div>
+        <!-- 1. 数据源与密钥 -->
+        <div class="card">
+            <h2>1. 数据源与密钥</h2>
+            
+            <!-- 修改主密钥区域 -->
+            <label>主密钥 (API验证通过后需返回此值)</label>
+            <div style="display:flex;gap:10px;margin-bottom:10px">
+                <input type="text" id="masterKey" style="background:#fff;color:#059669;font-weight:bold;border:1px solid #cbd5e1;border-radius:6px;padding:8px;flex:1">
+                <div style="display:flex;gap:5px">
+                    <button class="gray" onclick="initKey()">随机生成</button>
+                    <button class="gray" onclick="setCustomKey()">自定义</button>
+                </div>
+            </div>
+            
+            <!-- 修改原始内容区域，添加文件选择和拖放 -->
+            <label>原始内容 (LX 源 HTML)</label>
+            <div id="srcHtmlContainer" class="file-drop-zone" onclick="document.getElementById('srcHtmlFile').click()">
+                <div>📁 点击或拖放 HTML 文件到这里</div>
+                <div style="font-size:12px;margin:10px 0">或直接在下面文本框中粘贴内容</div>
+            </div>
+            <textarea id="srcHtml" style="width:100%;height:80px;border:1px solid #cbd5e1;border-radius:6px;margin-bottom:10px;padding:8px;box-sizing:border-box" placeholder="在此粘贴HTML内容..."></textarea>
+            <input type="file" id="srcHtmlFile" accept=".html,.htm" style="display:none">
+        </div>
+
+        <!-- 新增：多内容配置区域 -->
+        <div class="card">
+            <h2 style="display:flex;justify-content:space-between;align-items:center">
+                <span>2. 多内容配置</span>
+                <button onclick="addContent()" style="font-size:12px;padding:4px 8px">+ 添加内容</button>
+            </h2>
+            
+            <div id="multiContentList">
+                <!-- 动态添加的内容项 -->
+            </div>
+        </div>
+
+        <!-- 3. 解锁策略 -->
+        <div class="card">
+            <h2>3. 解锁策略配置</h2>
+            
+            <div style="background:#f8fafc;padding:10px;border-radius:6px;margin-bottom:10px">
+                <label>
+                    <input type="checkbox" id="useApi" onchange="document.getElementById('apiSet').style.display=this.checked?'block':'none'"> 
+                    启用远程 API 验证
+                </label>
+                <div id="apiSet" style="display:none;margin-top:10px;border-top:1px dashed #cbd5e1;padding-top:10px">
+                    <input type="text" id="apiUrl" placeholder="URL: https://api.com/auth?k={KEY}">
+                    <div style="display:flex;gap:5px">
+                        <select id="apiType"><option value="text">纯文本</option><option value="json">JSON</option></select>
+                        <input type="text" id="apiPath" placeholder="JSON路径 (如 data.key)">
+                    </div>
+                </div>
+            </div>
+
+            <div style="background:#f8fafc;padding:10px;border-radius:6px">
+                <label>本地备用密钥（用于全局解锁）</label>
+                <div style="display:flex;gap:5px;margin-bottom:5px">
+                    <input type="text" id="txtPass" placeholder="添加密码...">
+                    <button onclick="addPass()">➕</button>
+                </div>
+                <div style="display:flex;gap:5px">
+                    <input type="file" id="filePass">
+                    <button class="gray" onclick="addFile()">📂 加文件锁</button>
+                </div>
+                <div id="vaultList" style="margin-top:5px;font-size:12px;color:#64748b"></div>
+            </div>
+        </div>
+
+        <!-- 4. 开发指南 -->
+        <div class="card">
+            <h2>📖 模板编写指南 (API 文档)</h2>
+            <div class="guide-box">
+<span class="guide-com">// 1. 内核会自动注入 window.LX 对象</span>
+<span class="guide-tag">window.LX.unlock(password)</span>
+<span class="guide-com">-> 尝试使用文本密码解锁</span>
+
+<span class="guide-tag">window.LX.unlockWithFile(fileInputInfo)</span>
+<span class="guide-com">-> 传入 File 对象或 Hash 尝试解锁</span>
+
+<span class="guide-tag">window.LX.unlockWithApi(token)</span>
+<span class="guide-com">-> 使用 Token 调用配置的 API 解锁</span>
+
+<span class="guide-tag">window.LX.onMessage = function(msg, type){}</span>
+<span class="guide-com">-> 覆盖此函数以接收错误/状态消息</span>
+<span class="guide-com">-> type: 'error' | 'info' | 'success'</span>
+
+<span class="guide-tag">window.LX.config</span>
+<span class="guide-com">-> { useApi: true/false } 用于控制UI显示</span>
+
+<span class="guide-com">// 新增：多内容相关</span>
+<span class="guide-tag">window.LX.contents</span>
+<span class="guide-com">-> 返回所有内容的名称数组</span>
+
+<span class="guide-tag">window.LX.unlockContent(index, key)</span>
+<span class="guide-com">-> 直接解锁特定内容</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：模板编辑 -->
+    <div>
+        <div class="card" style="height:100%;display:flex;flex-direction:column;box-sizing:border-box">
+            <h2>
+                <span>4. 自定义模板 (HTML)</span>
+                <span style="font-size:12px;font-weight:normal;color:#64748b">如果不填，则使用默认暗黑主题</span>
+            </h2>
+            <div id="editor-container"></div>
+            <textarea id="tplInput" style="display:none"></textarea>
+            
+            <h2 style="margin-top:20px">预览 (仅供 UI 参考)</h2>
+            <iframe id="previewFrame" class="preview-iframe"></iframe>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- 逻辑处理部分 ---
+let masterKey = '';
+let vault = []; // 全局解锁方式
+let editor;
+let multiContents = []; // 存储多个原始内容
+
+// 初始化多内容数组
+function initMultiContents() {
+    multiContents = [{
+        id: Date.now(),
+        name: '默认内容',
+        html: '',
+        passwords: [],
+        files: []
+    }];
+    renderMultiContents();
+}
+
+// 渲染多内容列表
+function renderMultiContents() {
+    const container = document.getElementById('multiContentList');
+    container.innerHTML = multiContents.map(content => `
+        <div class="multi-content-item">
+            <div class="multi-content-header">
+                <input type="text" value="${content.name}" 
+                       onchange="updateContentName(${content.id}, this.value)"
+                       style="border:none;background:none;font-weight:bold;color:#0f172a;flex:1;padding:5px">
+                <button onclick="removeContent(${content.id})" class="gray" style="padding:3px 8px;font-size:11px">删除</button>
+            </div>
+            
+            <label style="font-size:11px">HTML 内容</label>
+            <textarea data-id="${content.id}" 
+                      onchange="updateContentHtml(${content.id}, this.value)"
+                      oninput="updateContentHtml(${content.id}, this.value)"
+                      style="width:100%;height:60px;border:1px solid #cbd5e1;border-radius:4px;padding:6px;font-size:12px;margin-bottom:10px">${content.html}</textarea>
+            
+            <div style="display:flex;gap:5px;margin-bottom:5px">
+                <input type="text" data-id="${content.id}" placeholder="添加密码..." style="flex:1;padding:4px;font-size:12px">
+                <button onclick="addContentPass(${content.id})" style="padding:4px 8px;font-size:11px">+ 密码</button>
+                <input type="file" data-id="${content.id}" style="display:none" onchange="addContentFile(${content.id}, this)">
+                <button onclick="document.querySelector('input[data-id=\"${content.id}\"]').click()" style="padding:4px 8px;font-size:11px">+ 文件</button>
+            </div>
+            
+            <div class="multi-content-locks">
+                ${content.passwords.map(p => `<span class="lock-tag">🔑 ${p}</span>`).join('')}
+                ${content.files.map(f => `<span class="lock-tag">📁 ${f.name}</span>`).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+// 添加内容
+function addContent() {
+    const id = Date.now();
+    multiContents.push({
+        id: id,
+        name: `内容${multiContents.length + 1}`,
+        html: '',
+        passwords: [],
+        files: []
+    });
+    renderMultiContents();
+}
+
+// 更新内容名称
+function updateContentName(id, name) {
+    const content = multiContents.find(c => c.id === id);
+    if (content) content.name = name;
+}
+
+// 更新内容HTML
+function updateContentHtml(id, html) {
+    const content = multiContents.find(c => c.id === id);
+    if (content) content.html = html;
+}
+
+// 移除内容
+function removeContent(id) {
+    if (multiContents.length > 1) {
+        multiContents = multiContents.filter(c => c.id !== id);
+        renderMultiContents();
+    } else {
+        alert('至少需要保留一个内容');
+    }
+}
+
+// 为内容添加密码
+function addContentPass(id) {
+    const input = document.querySelector(`input[data-id="${id}"]`);
+    const pass = input.value.trim();
+    if (!pass) return;
+    
+    const content = multiContents.find(c => c.id === id);
+    if (content && !content.passwords.includes(pass)) {
+        content.passwords.push(pass);
+        renderMultiContents();
+    }
+    input.value = '';
+}
+
+// 为内容添加文件锁
+function addContentFile(id, fileInput) {
+    const file = fileInput.files[0];
+    if (!file) return;
+    
+    const content = multiContents.find(c => c.id === id);
+    if (content && !content.files.some(f => f.name === file.name && f.size === file.size)) {
+        content.files.push(file);
+        renderMultiContents();
+    }
+    fileInput.value = ''; // 清空文件输入
+}
+
+// 文件选择和拖放功能
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('srcHtmlContainer');
+    const textarea = document.getElementById('srcHtml');
+    const fileInput = document.getElementById('srcHtmlFile');
+    
+    // 拖放事件
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.classList.add('dragover');
+    });
+    
+    dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        this.classList.remove('dragover');
+    });
+    
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('dragover');
+        
+        const file = e.dataTransfer.files[0];
+        if (file && (file.name.endsWith('.html') || file.name.endsWith('.htm') || file.type === 'text/html')) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                textarea.value = e.target.result;
+                // 如果多内容列表为空，自动添加到第一个内容
+                if (multiContents.length === 0) {
+                    initMultiContents();
+                }
+                if (multiContents.length > 0) {
+                    multiContents[0].html = e.target.result;
+                    renderMultiContents();
+                }
+            };
+            reader.readAsText(file);
+        } else {
+            alert('请选择 HTML 文件');
+        }
+    });
+    
+    // 文件选择事件
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                textarea.value = e.target.result;
+                // 如果多内容列表为空，自动添加到第一个内容
+                if (multiContents.length === 0) {
+                    initMultiContents();
+                }
+                if (multiContents.length > 0) {
+                    multiContents[0].html = e.target.result;
+                    renderMultiContents();
+                }
+            };
+            reader.readAsText(file);
+        }
+    });
+    
+    // 初始化多内容
+    initMultiContents();
+});
+
+// 自定义主密钥功能
+function setCustomKey() {
+    const currentKey = document.getElementById('masterKey').value;
+    const newKey = prompt('请输入自定义主密钥（32位十六进制字符串）：', currentKey || CryptoJS.lib.WordArray.random(32).toString());
+    if (newKey && newKey.length === 64) {
+        masterKey = newKey;
+        document.getElementById('masterKey').value = masterKey;
+        vault = [];
+        renderVault();
+        alert('主密钥已设置成功！');
+    } else if (newKey) {
+        alert('密钥必须是64位十六进制字符（32字节）');
+    }
+}
+
+// 初始化密钥
+function initKey() {
+    masterKey = CryptoJS.lib.WordArray.random(32).toString();
+    document.getElementById('masterKey').value = masterKey;
+    vault = [];
+    renderVault();
+}
+
+// 原有的解锁策略函数
+function addPass(){
+    const p=document.getElementById('txtPass').value; if(!p)return;
+    vault.push({type:'PASS',desc:p,lock:CryptoJS.AES.encrypt("OK|"+masterKey,p).toString()});
+    document.getElementById('txtPass').value=''; renderVault();
+}
+function addFile(){
+    const f=document.getElementById('filePass').files[0]; if(!f)return;
+    const r=new FileReader();
+    r.onload=e=>{
+        const h=CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+        vault.push({type:'FILE',desc:f.name,lock:CryptoJS.AES.encrypt("OK|"+masterKey,h).toString()});
+        renderVault();
+    };
+    r.readAsArrayBuffer(f);
+}
+function renderVault(){
+    document.getElementById('vaultList').innerHTML=vault.map((v,i)=>`[${v.type}] ${v.desc} <a href="#" onclick="vault.splice(${i},1);renderVault()" style="color:red">x</a>`).join('; ');
+}
+
+// Monaco 编辑器初始化
+require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' }});
+require(['vs/editor/editor.main'], function() {
+    editor = monaco.editor.create(document.getElementById('editor-container'), {
+        value: defaultTemplate,
+        language: 'html',
+        theme: 'vs-dark',
+        minimap: { enabled: false }
+    });
+    editor.onDidChangeModelContent(() => updatePreview());
+    updatePreview();
+});
+
+// 默认模板代码（保持不变）
+const defaultTemplate = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { background: #111; color: #fff; font-family: sans-serif; display: flex; height: 100vh; justify-content: center; align-items: center; margin: 0; }
+  .box { background: #222; padding: 30px; border-radius: 10px; width: 300px; text-align: center; border: 1px solid #333; }
+  input { width: 100%; padding: 10px; margin: 10px 0; background: #000; border: 1px solid #444; color: #fff; box-sizing: border-box; border-radius: 4px; }
+  button { width: 100%; padding: 10px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+  button:hover { background: #1d4ed8; }
+  .msg { color: #f87171; font-size: 12px; margin-top: 10px; min-height: 16px; }
+  .hidden { display: none; }
+  .tab { display: flex; margin-bottom: 15px; border-bottom: 1px solid #333; }
+  .tab div { flex: 1; padding: 8px; cursor: pointer; opacity: 0.5; }
+  .tab div.active { opacity: 1; border-bottom: 2px solid #2563eb; color: #2563eb; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2 style="margin-top:0">🔒 已加密内容</h2>
+    
+    <div class="tab">
+       <div id="tab-api" onclick="setMode('api')" class="active">API</div>
+       <div id="tab-local" onclick="setMode('local')">本地</div>
+    </div>
+
+    <!-- API 输入 -->
+    <div id="panel-api">
+       <input type="text" id="token" placeholder="输入 Token..." onkeyup="if(event.key=='Enter') doApi()">
+       <button onclick="doApi()" id="btn-api">验证</button>
+    </div>
+
+    <!-- 本地 输入 -->
+    <div id="panel-local" class="hidden">
+       <input type="password" id="pass" placeholder="密码..." onkeyup="if(event.key=='Enter') doLocal()">
+       <div style="margin:10px 0;font-size:12px;color:#666">- 或 -</div>
+       <button onclick="document.getElementById('f').click()" style="background:#333">📂 选择密钥文件</button>
+       <input type="file" id="f" style="display:none" onchange="window.LX.unlockWithFile(this.files[0])">
+       <button onclick="doLocal()" style="margin-top:10px">解锁</button>
+    </div>
+
+    <div class="msg" id="msg-area"></div>
+  </div>
+
+<script>
+  // 1. 初始化检查：如果没启用 API，自动切到本地
+  if(!window.LX.config.useApi) {
+      document.getElementById('tab-api').style.display = 'none';
+      setMode('local');
+  }
+
+  // 2. 绑定消息回调，接收内核发来的信息
+  window.LX.onMessage = function(text, type) {
+      const el = document.getElementById('msg-area');
+      el.innerText = text;
+      el.style.color = type === 'error' ? '#f87171' : '#4ade80';
+      if(type === 'process') {
+         document.getElementById('btn-api').innerText = '验证中...';
+         document.getElementById('btn-api').disabled = true;
+      } else {
+         document.getElementById('btn-api').innerText = '验证';
+         document.getElementById('btn-api').disabled = false;
+      }
+  };
+
+  // 3. UI 逻辑
+  function setMode(m) {
+      document.querySelectorAll('.tab div').forEach(d => d.classList.remove('active'));
+      document.getElementById('tab-'+m).classList.add('active');
+      document.getElementById('panel-api').classList.toggle('hidden', m!=='api');
+      document.getElementById('panel-local').classList.toggle('hidden', m!=='local');
+      document.getElementById('msg-area').innerText = '';
+  }
+
+  function doApi() {
+      window.LX.unlockWithApi(document.getElementById('token').value);
+  }
+
+  function doLocal() {
+      window.LX.unlock(document.getElementById('pass').value);
+  }
+<\/script>
+</body>
+</html>`;
+
+function loadDefaultTemplate() { editor.setValue(defaultTemplate); }
+
+function updatePreview() {
+    const frame = document.getElementById('previewFrame');
+    const html = editor.getValue();
+    // 注入模拟的 LX 对象，防止预览报错
+    const mockScript = `<script>
+        window.LX = {
+            config: { useApi: true },
+            contents: ['默认内容', '内容2'],
+            unlock: (p)=>alert('预览模式: 尝试用密码 '+p+' 解锁'),
+            unlockWithApi: (t)=>alert('预览模式: 尝试用API Token '+t+' 解锁'),
+            unlockWithFile: (f)=>alert('预览模式: 文件已选择'),
+            unlockContent: (i,k)=>alert('预览模式: 解锁内容'+i),
+            onMessage: (m)=>console.log(m)
+        }
+    <\/script>`;
+    frame.srcdoc = html.replace('</body>', mockScript + '</body>');
+}
+
+// 生成最终文件（支持多内容和原有功能）
+function generate() {
+    // 获取原始HTML内容（兼容原有方式）
+    const srcHtml = document.getElementById('srcHtml').value;
+    
+    // 准备内容配置
+    let contentConfigs = [];
+    
+    // 检查是否使用多内容配置
+    const useMultiContent = multiContents.some(content => content.html.trim() !== '');
+    
+    if (useMultiContent) {
+        // 使用多内容配置
+        for (const content of multiContents) {
+            if (content.html.trim() === '') continue;
+            
+            // 加密HTML内容
+            const encryptedContent = CryptoJS.AES.encrypt(content.html, masterKey).toString();
+            
+            // 准备锁列表
+            const locks = [];
+            
+            // 添加密码锁
+            content.passwords.forEach(pass => {
+                locks.push(CryptoJS.AES.encrypt("OK|" + masterKey, pass).toString());
+            });
+            
+            // 添加文件锁
+            content.files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const hash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+                    locks.push(CryptoJS.AES.encrypt("OK|" + masterKey, hash).toString());
+                };
+                reader.readAsArrayBuffer(file);
+            });
+            
+            contentConfigs.push({
+                name: content.name,
+                encryptedContent: encryptedContent,
+                locks: locks
+            });
+        }
+    } else if (srcHtml.trim() !== '') {
+        // 使用原有的单个内容方式
+        const encryptedContent = CryptoJS.AES.encrypt(srcHtml, masterKey).toString();
+        
+        // 准备锁列表（使用全局vault）
+        const locks = vault.map(v => v.lock);
+        
+        contentConfigs.push({
+            name: '加密内容',
+            encryptedContent: encryptedContent,
+            locks: locks
+        });
+    } else {
+        return alert('请填入原始内容或配置多内容');
+    }
+    
+    // 准备API配置
+    const apiConfig = {
+        enabled: document.getElementById('useApi').checked,
+        url: document.getElementById('apiUrl').value,
+        type: document.getElementById('apiType').value,
+        path: document.getElementById('apiPath').value
+    };
+    
+    // 提取用户模板 (如果为空则用默认)
+    let userHtml = editor.getValue() || defaultTemplate;
+    
+    // 构建内核脚本 (Core Loader)
+    // 这段脚本会注入到用户模板的底部
+    const coreScript = `
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"><\/script>
+<script>
+(function(){
+    const CONTENTS = ${JSON.stringify(contentConfigs.map(c => ({
+        name: c.name,
+        encryptedContent: c.encryptedContent,
+        locks: c.locks
+    })))};
+    
+    const API = ${JSON.stringify(apiConfig)};
+    
+    // 定义接口
+    window.LX = {
+        config: { useApi: API.enabled },
+        contents: CONTENTS.map(c => c.name),
+        onMessage: function(msg, type){ console.log(type, msg); }, // 用户可覆盖
+        
+        // 密码解锁（尝试所有内容）
+        unlock: function(key) {
+             if(!key) return this.onMessage('请输入密码', 'error');
+             this._tryUnlockAll([key]);
+        },
+        
+        // 文件解锁（尝试所有内容）
+        unlockWithFile: function(file) {
+            if(!file) return this.onMessage('请选择文件', 'error');
+            const r = new FileReader();
+            r.onload = e => {
+                const hash = CryptoJS.SHA256(CryptoJS.lib.WordArray.create(e.target.result)).toString();
+                this._tryUnlockAll([hash]);
+            };
+            r.readAsArrayBuffer(file);
+        },
+        
+        // API 解锁（返回主密钥）
+        unlockWithApi: async function(token) {
+            if(!API.enabled) return this.onMessage('API 未启用', 'error');
+            if(!token) return this.onMessage('请输入 Token', 'error');
+            
+            this.onMessage('正在连接验证...', 'process');
+            try {
+                const url = API.url.replace('{KEY}', encodeURIComponent(token));
+                const res = await fetch(url);
+                if(!res.ok) throw new Error('API 状态码 ' + res.status);
+                
+                let mk = '';
+                if(API.type === 'json') {
+                    const json = await res.json();
+                    mk = API.path.split('.').reduce((o,i)=>o?o[i]:null, json);
+                } else {
+                    mk = await res.text();
+                }
+                
+                if(!mk) throw new Error('返回数据无效');
+                this._unlockWithMasterKey(mk.trim());
+                
+            } catch(e) {
+                this.onMessage('验证失败: ' + e.message, 'error');
+            }
+        },
+        
+        // 直接解锁特定内容
+        unlockContent: function(index, key) {
+            if(index < 0 || index >= CONTENTS.length) {
+                return this.onMessage('内容不存在', 'error');
+            }
+            this._unlockContent(index, key);
+        },
+        
+        // 内部：尝试用 Key 列表解开所有内容
+        _tryUnlockAll: function(keys) {
+            for(let i = 0; i < CONTENTS.length; i++) {
+                const content = CONTENTS[i];
+                for(let key of keys) {
+                    for(let lock of content.locks) {
+                        try {
+                            const bytes = CryptoJS.AES.decrypt(lock, key);
+                            const str = bytes.toString(CryptoJS.enc.Utf8);
+                            if(str.startsWith("OK|")) {
+                                this._unlockContent(i, str.split('|')[1]);
+                                return;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            }
+            window.LX.onMessage('密码错误或文件不匹配', 'error');
+        },
+        
+        // 内部：使用主密钥解锁（解锁第一个内容）
+        _unlockWithMasterKey: function(masterKey) {
+            if(CONTENTS.length > 0) {
+                this._unlockContent(0, masterKey);
+            }
+        },
+        
+        // 内部：最终解密与替换
+        _unlockContent: function(index, mk) {
+            try {
+                const content = CONTENTS[index];
+                const bytes = CryptoJS.AES.decrypt(content.encryptedContent, mk);
+                const html = bytes.toString(CryptoJS.enc.Utf8);
+                if(!html || !html.includes('<')) throw new Error();
+                
+                this.onMessage('解锁成功: ' + content.name, 'success');
+                setTimeout(() => {
+                    document.open();
+                    document.write(html);
+                    document.close();
+                }, 500);
+            } catch(e) {
+                window.LX.onMessage('数据解密失败', 'error');
+            }
+        }
+    };
+})();
+<\/script>`;
+
+    // 5. 组合最终文件
+    // 将 Core Script 插入到用户 HTML 的 </body> 之前，或者最后
+    let finalHtml = "";
+    if(userHtml.includes('</body>')) {
+        finalHtml = userHtml.replace('</body>', coreScript + '</body>');
+    } else {
+        finalHtml = userHtml + coreScript;
+    }
+
+    // 6. 导出
+    const blob = new Blob([finalHtml], {type: "text/html"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "index.html";
+    a.click();
+}
+
+// 初始化
+initKey();
+</script>
+</body>
+</html>
